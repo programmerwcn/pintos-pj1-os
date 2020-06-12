@@ -1,4 +1,4 @@
-#include "threads/thread.h"
+ #include "threads/thread.h"
 #include <debug.h>
 #include <stddef.h>
 #include <random.h>
@@ -222,6 +222,12 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+/* Preemptive scheduling: Let CPU to schedule newly created thread by priority */
+struct thread * current_thread = thread_current();
+if (current_thread->priority < priority) {
+    thread_yield();
+}
+
   return tid;
 }
 
@@ -362,6 +368,8 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+  // yield the thread(put it into ready, let CPU to schedule threads */
+  thread_yield();
 }
 
 /* Returns the current thread's priority. */
