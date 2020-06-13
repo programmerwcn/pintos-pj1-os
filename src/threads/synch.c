@@ -113,10 +113,12 @@ sema_up (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  if (!list_empty (&sema->waiters)) 
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
+  if (!list_empty (&sema->waiters)) {
+      list_sort (&sema->waiters, compare_thread_priority_higher, NULL);
+      thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
+  }
   sema->value++;
+  thread_yield();
   intr_set_level (old_level);
 }
 
@@ -192,13 +194,52 @@ lock_init (struct lock *lock)
 void
 lock_acquire (struct lock *lock)
 {
-  ASSERT (lock != NULL);
+    struct thread *current_thread = thread_current ();
+    struct lock * l;
+    enum intr_level old_level;
+
+    ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  sema_down (&lock->semaphore);
-  lock->holder = thread_current ();
-}
+    /* 递归的优先级捐赠 */
+    // Condition: lock is held & Round Robin Scheduling
+    if (lock->holder != NULL ) {
+        current_thread->lock_waiting = lock;
+        l = lock;
+        while (l != NULL && (current_thread->priority > l->max_priority))
+        {
+            // reset lock's max priority according to the threads waiting for it
+            l->max_priority = current_thread->priority;
+            // donate priority to the owner of the lock
+            thread_donate_priority (l->holder);
+            // recursion
+            l = l->holder->lock_waiting;
+        }
+    }
+
+    /* P */
+    sema_down (&lock->semaphore);
+
+    lock->holder = thread_current();
+
+    if (!thread_mlfqs)
+    {
+        // update lock_waiting
+        thread_current()->lock_waiting = NULL;
+        // update lock priority
+        // why ?
+        lock->max_priority = thread_current()->priority;
+        // give lock to current thread
+        list_push_back(&thread_current() -> locks_holding, &lock->elem);
+        if(lock->max_priority > thread_current()->priority){
+            thread_current()->priority = lock->max_priority;
+            thread_yield();
+        }
+    }
+    }
+
+
 
 /* Tries to acquires LOCK and returns true if successful or false
    on failure.  The lock must not already be held by the current
@@ -231,7 +272,11 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
-  lock->holder = NULL;
+//    if (!thread_mlfqs) {
+        thread_remove_lock(lock);
+//    }
+
+    lock->holder = NULL;
   sema_up (&lock->semaphore);
 }
 
@@ -301,6 +346,14 @@ cond_wait (struct condition *cond, struct lock *lock)
   lock_acquire (lock);
 }
 
+bool cond_compare_priority (const struct list_elem *a,const struct list_elem *b,void *aux){
+    struct semaphore_elem *sa = list_entry(a, struct semaphore_elem, elem);
+    struct semaphore_elem *sb = list_entry(b, struct semaphore_elem, elem);
+    struct thread *ta = list_entry(list_front(&sa->semaphore.waiters), struct thread, elem);
+    struct thread *tb = list_entry(list_front(&sb->semaphore.waiters), struct thread, elem);
+    return (ta->priority > tb->priority);
+}
+
 /* If any threads are waiting on COND (protected by LOCK), then
    this function signals one of them to wake up from its wait.
    LOCK must be held before calling this function.
@@ -316,9 +369,10 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (!intr_context ());
   ASSERT (lock_held_by_current_thread (lock));
 
-  if (!list_empty (&cond->waiters)) 
-    sema_up (&list_entry (list_pop_front (&cond->waiters),
-                          struct semaphore_elem, elem)->semaphore);
+  if (!list_empty (&cond->waiters)) {
+      list_sort (&cond->waiters, cond_compare_priority, NULL);
+      sema_up(&list_entry(list_pop_front(&cond->waiters),struct semaphore_elem, elem)->semaphore);
+  }
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
@@ -335,4 +389,18 @@ cond_broadcast (struct condition *cond, struct lock *lock)
 
   while (!list_empty (&cond->waiters))
     cond_signal (cond, lock);
+}
+
+/**
+ * Compare if the thread waiting for lock holding a has a higher priority than thread waiting for lock holding b
+ * @param a list_elem
+ * @param b list_elem
+ * @param aux
+ * @return bool
+ */
+bool lock_cmp_priority (const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+    struct lock *la = list_entry (a, struct lock, elem);
+    struct lock *lb = list_entry (b, struct lock, elem);
+    return (la->max_priority > lb->max_priority);
 }

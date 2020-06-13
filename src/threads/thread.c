@@ -367,9 +367,17 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
-  // yield the thread(put it into ready, let CPU to schedule threads */
-  thread_yield();
+    enum intr_level old_level = intr_disable ();
+    struct thread *current_thread = thread_current ();
+    int old_priority = current_thread->priority;
+    current_thread->priority_origin = new_priority;
+    if (list_empty( & (current_thread->locks_holding)) ||
+    new_priority > old_priority) {
+        thread_current()->priority = new_priority;
+        // yield the thread(put it into ready, let CPU to schedule threads */
+        thread_yield();
+    }
+    intr_set_level (old_level);
 }
 
 /* Returns the current thread's priority. */
@@ -498,6 +506,10 @@ init_thread (struct thread *t, const char *name, int priority)
   //list_push_back (&all_list, &t->allelem);
     // implement ordered ready queue
     list_insert_ordered(&all_list, &t->allelem, (list_less_func *) &compare_thread_priority_higher, NULL);
+
+    t->priority_origin = priority;
+    list_init (&t->locks_holding);
+    t->lock_waiting = NULL;
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -645,3 +657,102 @@ bool compare_thread_priority_higher (struct list_elem *a, struct list_elem *b, v
     struct thread *tb = list_entry (b, struct thread, elem);
     return (ta->priority > tb->priority);
 }
+
+/**
+ * Thread donation: reset a thread's priority and change its position in the ready queue
+ * @param t thread
+ */
+
+ void thread_donate_priority (struct thread *t)
+ {
+     // disable interrupts
+     enum intr_level old_level = intr_disable ();
+
+     /* change a thread's priority according to the locks it holds */
+     thread_update_priority (t);
+
+     /* change a thread's position in the ready queue */
+     if (t->status == THREAD_READY)
+     {
+         list_sort (&ready_list, (list_less_func *) &compare_thread_priority_higher, NULL);
+     }
+
+     // reset interrupts
+     intr_set_level (old_level);
+ }
+
+/**
+ * In priority donation, a thread' priority is set according to the locks it holds
+ * thread's priority = the highest priority of threads waiting for its locks
+ * @param t thread
+ */
+
+ void thread_update_priority (struct thread *t)
+ {
+     // disable interrupts
+     enum intr_level old_level = intr_disable ();
+
+     int max_priority = t->priority_origin;
+
+     /* Updated priority should be the highest priority among threads waiting for the locks it holds */
+     if (!list_empty (&t->locks_holding))
+     {
+         // sort locks by their max priority
+         list_sort (&t->locks_holding, lock_cmp_priority, NULL);
+         // get the lock with highest priority
+         struct lock * l = list_entry (list_front (&t->locks_holding), struct lock, elem);
+         // get max_priority
+         if (l->max_priority > max_priority)
+             max_priority = l->max_priority;
+     }
+     t->priority = max_priority;
+
+     // enable interrupts
+     intr_set_level (old_level);
+ }
+
+/**
+ * Give lock to current thread
+ * @param lock
+ */
+
+ void thread_hold_lock(struct lock *lock)
+ {
+     // disable interrupts
+     enum intr_level old_level = intr_disable ();
+
+     struct thread * t = thread_current();
+     /* insert the lock into threads' locks_holding queue */
+     list_insert_ordered (& t->locks_holding, &lock->elem, lock_cmp_priority, NULL);
+
+     /* update thread's priority & allow preemptive scheduling */
+     if (lock->max_priority > t->priority)
+     {
+         t->priority = lock->max_priority;
+         // allow preemptive scheduling
+         thread_yield ();
+     }
+
+     // reset interrupts
+     intr_set_level (old_level);
+ }
+
+/**
+ * Remove lock from current lock
+ * @param lock
+ */
+
+ void thread_remove_lock (struct lock *lock)
+ {
+     // disable interrupts
+     enum intr_level old_level = intr_disable ();
+
+     /* remove lock */
+     list_remove (&lock->elem);
+
+     /* update priority */
+     thread_update_priority (thread_current ());
+
+     // reset interrupts
+     intr_set_level (old_level);
+ }

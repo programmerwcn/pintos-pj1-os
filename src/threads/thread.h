@@ -99,11 +99,24 @@ struct thread
 #endif
 
 
-/* sleep time */
-    int64_t sleep_time;
+
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
-  };
+    /* New created */
+
+    /* sleep time */
+    int64_t sleep_time;
+
+    /* original priority */
+    int priority_origin;
+
+    /* locks */
+    /* The locks that thread is holding */
+    struct list locks_holding;
+    /* The lock that thread is waiting */
+    struct lock * lock_waiting;
+
+};
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -149,4 +162,17 @@ void check_wait_thread (struct thread *t, void *aux UNUSED);
 
 /* Check if the thread contains element a is prior to thread containing b */
 bool compare_thread_priority_higher (struct list_elem *a, struct list_elem *b, void *aux UNUSED);
+
+/* reset a thread's priority & change its position in the ready queue */
+void thread_donate_priority (struct thread *t);
+
+/* reset a thread's priority according to the locks it holds */
+void thread_update_priority (struct thread *t);
+
+/* Give lock to current thread */
+void thread_hold_lock(struct lock *lock);
+
+/* Remove lock from current thread */
+void thread_remove_lock (struct lock *lock);
+
 #endif /* threads/thread.h */
