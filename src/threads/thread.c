@@ -18,6 +18,7 @@
 
 /* to be deleted */
 //#include "thread.h"
+//#include "synch.h"
 
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
@@ -367,6 +368,7 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
+
     enum intr_level old_level = intr_disable ();
     struct thread *current_thread = thread_current ();
     int old_priority = current_thread->priority;
@@ -378,6 +380,7 @@ thread_set_priority (int new_priority)
         thread_yield();
     }
     intr_set_level (old_level);
+
 }
 
 /* Returns the current thread's priority. */
@@ -505,6 +508,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
   //list_push_back (&all_list, &t->allelem);
     // implement ordered ready queue
+
     list_insert_ordered(&all_list, &t->allelem, (list_less_func *) &compare_thread_priority_higher, NULL);
 
     t->priority_origin = priority;
@@ -674,7 +678,9 @@ bool compare_thread_priority_higher (struct list_elem *a, struct list_elem *b, v
      /* change a thread's position in the ready queue */
      if (t->status == THREAD_READY)
      {
+
          list_sort (&ready_list, (list_less_func *) &compare_thread_priority_higher, NULL);
+
      }
 
      // reset interrupts

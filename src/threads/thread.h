@@ -4,6 +4,9 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
+/* delete */
+//#include "synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -98,10 +101,9 @@ struct thread
     uint32_t *pagedir;                  /* Page directory. */
 #endif
 
-
-
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+
     /* New created */
 
     /* sleep time */
@@ -116,7 +118,9 @@ struct thread
     /* The lock that thread is waiting */
     struct lock * lock_waiting;
 
+
 };
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -161,7 +165,9 @@ int thread_get_load_avg (void);
 void check_wait_thread (struct thread *t, void *aux UNUSED);
 
 /* Check if the thread contains element a is prior to thread containing b */
+
 bool compare_thread_priority_higher (struct list_elem *a, struct list_elem *b, void *aux UNUSED);
+
 
 /* reset a thread's priority & change its position in the ready queue */
 void thread_donate_priority (struct thread *t);
